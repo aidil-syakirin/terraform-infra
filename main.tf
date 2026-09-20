@@ -1,11 +1,102 @@
-resource "terraform_data" "example" {
-  input = "Hello World and Terraform"
+terraform {
+  required_providers {
+    libvirt = {
+      source = "dmacvicar/libvirt"
+    }
+  }
 }
 
-resource "terraform_data" "another_example" {
-  input = "Another Hello World and Terraform"
+provider "libvirt" {
+  uri = "qemu+sshcmd://optiplex/system"
 }
 
-output "example_message" {
-  value = terraform_data.example.output
+# Volume from HTTP URL upload
+resource "libvirt_volume" "ubuntu_base" {
+  name = "ubuntu-22.04.qcow2"
+  pool = "default"
+  target = {
+    format = {
+      type = "qcow2"
+    }
+  }
+
+  create = {
+    content = {
+      url = "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    }
+  }
+  # capacity is automatically computed from Content-Length when available
+}
+
+# Basic volume
+resource "libvirt_volume" "disk_tf_example" {
+  name     = "disk_tf_example.qcow2"
+  pool     = "default"
+  capacity = 10737418240 # 10 GB
+
+  backing_store = {
+    path = libvirt_volume.ubuntu_base.path
+    format = {
+      type = "qcow2"
+    }
+  }
+}
+
+resource "libvirt_cloudinit_disk" "init" {
+  name      = "vm-init"
+  user_data = file("user-data.yml")
+  meta_data = yamlencode({
+    instance-id    = "tf-vm-01"
+    local-hostname = "webserver"
+  })
+}
+
+resource "libvirt_volume" "cloudinit" {
+  name = "vm-cloudinit"
+  pool = "default"
+  # format = "raw"
+
+  create = {
+    content = {
+      url = libvirt_cloudinit_disk.init.path
+    }
+  }
+}
+
+# Basic VM configuration
+resource "libvirt_domain" "vm_tf_example" {
+  name        = "vm_tf_example"
+  memory      = 1024
+  memory_unit = "MiB"
+  vcpu        = 2
+  type        = "kvm"
+
+  os = {
+    type         = "hvm"
+    type_arch    = "x86_64"
+    type_machine = "q35"
+  }
+
+  devices = {
+    disks = [
+      {
+        volume_id = libvirt_volume.disk_tf_example.id
+      },
+      {
+        volume_id = libvirt_volume.cloudinit.id
+      }
+    ]
+    interfaces = [
+      {
+        model = {
+          type = "virtio"
+        }
+        source = {
+          network = {
+            network = "br0"
+          }
+        }
+      }
+    ]
+  }
 }
