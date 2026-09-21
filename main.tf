@@ -10,10 +10,14 @@ provider "libvirt" {
   uri = "qemu+sshcmd://optiplex/system"
 }
 
+variable "ssh_public_key" {
+  type = string
+}
+
 # Volume from HTTP URL upload
 resource "libvirt_volume" "ubuntu_base" {
   name = "ubuntu-22.04.qcow2"
-  pool = "default"
+  pool = "images"
   target = {
     format = {
       type = "qcow2"
@@ -31,7 +35,7 @@ resource "libvirt_volume" "ubuntu_base" {
 # Basic volume
 resource "libvirt_volume" "disk_tf_example" {
   name     = "disk_tf_example.qcow2"
-  pool     = "default"
+  pool     = "images"
   capacity = 10737418240 # 10 GB
 
   backing_store = {
@@ -43,8 +47,11 @@ resource "libvirt_volume" "disk_tf_example" {
 }
 
 resource "libvirt_cloudinit_disk" "init" {
-  name      = "vm-init"
-  user_data = file("user-data.yml")
+  name = "vm-init"
+  # user_data = file("user-data.yml")
+  user_data = templatefile("user-data.yml", {
+    ssh_public_key = var.ssh_public_key
+  })
   meta_data = yamlencode({
     instance-id    = "tf-vm-01"
     local-hostname = "webserver"
@@ -53,7 +60,7 @@ resource "libvirt_cloudinit_disk" "init" {
 
 resource "libvirt_volume" "cloudinit" {
   name = "vm-cloudinit"
-  pool = "default"
+  pool = "images"
   # format = "raw"
 
   create = {
